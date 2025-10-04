@@ -23,7 +23,7 @@ void fast_server::TCP::Server::run() {
         while (m_running) {
             ::boost::asio::ip::tcp::socket socket_for_client(m_io_context);
             ::boost::system::error_code ec;
-            m_acceptor->accept(socket_for_client, ec);
+            std::ignore = m_acceptor->accept(socket_for_client, ec);
             if (ec) {
                 ::fmt::print(stderr, "Error accepting connection: {}\n", ec.message());
                 break;
@@ -62,7 +62,7 @@ void fast_server::TCP::Server::unblock_waiting_acceptor() const {
         ::boost::asio::io_context io;
         ::boost::asio::ip::tcp::socket socket(io);
         ::boost::system::error_code ec;
-        socket.connect(::boost::asio::ip::tcp::endpoint(::boost::asio::ip::make_address(m_ip), m_port), ec);
+        std::ignore = socket.connect(::boost::asio::ip::tcp::endpoint(::boost::asio::ip::make_address(m_ip), m_port), ec);
 
         if (!ec) {
             char const* data = "SHUTDOWN";
@@ -96,7 +96,7 @@ void fast_server::TCP::Peer::stop() {
 
     if (m_socket.is_open()) {
         boost::system::error_code ec;
-        m_socket.close(ec);
+        std::ignore = m_socket.close(ec);
         if (ec) {
             ::fmt::print(stderr, "Error closing socket: {}\n", ec.message());
         }
