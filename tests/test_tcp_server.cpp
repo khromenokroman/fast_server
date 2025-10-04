@@ -10,11 +10,9 @@ static constexpr unsigned short int const DEFAULT_PORT = 6001;
 
 TEST(FastServer, createTCPServer) { ASSERT_NO_THROW(::fast_server::TCP::Server(DEFAULT_IP, DEFAULT_PORT)); }
 
-TEST(FastServer, runServer) { ASSERT_NO_THROW(::fast_server::TCP::Server(DEFAULT_IP, DEFAULT_PORT).run()); }
-
-TEST(FastServer, stopServer) {
+TEST(FastServer, runStopServer) {
     ::fast_server::TCP::Server server(DEFAULT_IP, DEFAULT_PORT);
-    server.run();
+    ASSERT_NO_THROW(server.run());
     std::this_thread::sleep_for(std::chrono::seconds(2));
     ASSERT_NO_THROW(server.stop());
 }

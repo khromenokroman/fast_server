@@ -1,74 +1,100 @@
 #include "tcp_server.hpp"
 
+#include <fmt/printf.h>
+
 #include <boost/asio.hpp>
 
-// void ServerTCP() {
-//     ::boost::asio::io_context io_context;
-//     ::boost::asio::ip::tcp::socket peer_socket(io_context);
-//     ::boost::asio::ip::tcp::endpoint endpoint = {::boost::asio::ip::make_address_v4("0.0.0.0"), 6001};
-//
-//     ::boost::asio::ip::tcp::acceptor acceptor(io_context, endpoint);
-//
-//     std::unique_ptr<char[]> data_recv(new char[1024]);
-//     std::atomic<std::size_t> count_messages = 0;
-//
-//     std::function<void(::boost::system::error_code ec, std::size_t bytes_recvd)> reciver;
-//     reciver = [&](::boost::system::error_code ec, std::size_t bytes_recvd) {
-//         if (!ec) {
-//             ++count_messages;
-//             // std::cout << "Message: " << std::string_view(data_recv.get(), bytes_recvd) << "count: " << count_messages
-//             // << std::endl;
-//             peer_socket.async_receive(::boost::asio::buffer(data_recv.get(), 1024), reciver);
-//         } else {
-//             std::cout << "Error: " << ec.message() << std::endl;
-//         }
-//     };
-//
-//     acceptor.async_accept(peer_socket, [&](::boost::system::error_code ec) {
-//         if (!ec) {
-//             std::cout << "Client connected" << std::endl;
-//             std::cout << "Client address: " << peer_socket.remote_endpoint().address().to_string() << std::endl;
-//             std::cout << "Client port: " << peer_socket.remote_endpoint().port() << std::endl;
-//             peer_socket.async_receive(::boost::asio::buffer(data_recv.get(), 1024), reciver);
-//         }
-//     });
-//
-//     io_context.run();
-//     std::cout << "Messages: " << count_messages << std::endl;
-// }
-fast_server::TCP::Server::Server(std::string_view ip, uint32_t port) : m_ip{ip}, m_port{port} {}
+fast_server::TCP::Server::Server(std::string_view ip, boost::asio::ip::port_type port)
+    : m_endpoint{::boost::asio::ip::make_address_v4(ip), port},
+      m_ip{ip},
+      m_acceptor{std::make_unique<::boost::asio::ip::tcp::acceptor>(m_io_context, m_endpoint)},
+      m_port{port},
+      m_running{false} {}
+
+fast_server::TCP::Server::~Server() { stop(); }
+
 void fast_server::TCP::Server::run() {
-    // ::boost::asio::io_context io_context;
-    // ::boost::asio::ip::tcp::socket peer_socket(io_context);
-    // ::boost::asio::ip::tcp::endpoint endpoint = {::boost::asio::ip::make_address_v4("0.0.0.0"), 6001};
-    //
-    // ::boost::asio::ip::tcp::acceptor acceptor(io_context, endpoint);
-    //
-    // std::unique_ptr<char[]> data_recv(new char[1024]);
-    // std::atomic<std::size_t> count_messages = 0;
-    //
-    // std::function<void(::boost::system::error_code ec, std::size_t bytes_recvd)> reciver;
-    // reciver = [&](::boost::system::error_code ec, std::size_t bytes_recvd) {
-    //     if (!ec) {
-    //         ++count_messages;
-    //         // std::cout << "Message: " << std::string_view(data_recv.get(), bytes_recvd) << "count: " << count_messages
-    //         // << std::endl;
-    //         peer_socket.async_receive(::boost::asio::buffer(data_recv.get(), 1024), reciver);
-    //     } else {
-    //         // std::cout << "Error: " << ec.message() << std::endl;
-    //     }
-    // };
-    //
-    // acceptor.async_accept(peer_socket, [&](::boost::system::error_code ec) {
-    //     if (!ec) {
-    //         // std::cout << "Client connected" << std::endl;
-    //         // std::cout << "Client address: " << peer_socket.remote_endpoint().address().to_string() << std::endl;
-    //         // std::cout << "Client port: " << peer_socket.remote_endpoint().port() << std::endl;
-    //         peer_socket.async_receive(::boost::asio::buffer(data_recv.get(), 1024), reciver);
-    //     }
-    // });
-    //
-    // io_context.run();
-    // // std::cout << "Messages: " << count_messages << std::endl;
+    if (m_running) {
+        return;
+    }
+    m_running = true;
+
+    m_accept_thread = std::thread([this]() {
+        while (m_running) {
+            ::boost::asio::ip::tcp::socket socket_for_client(m_io_context);
+            ::boost::system::error_code ec;
+            m_acceptor->accept(socket_for_client, ec);
+            if (ec) {
+                ::fmt::print(stderr, "Error accepting connection: {}\n", ec.message());
+                break;
+            }
+
+            m_peers.emplace_back([socket = std::move(socket_for_client), this]() mutable {
+                Peer peer{std::move(socket), m_running};
+                peer.run();
+            });
+        }
+    });
+    ::fmt::print("Server started\n");
 }
-void fast_server::TCP::Server::stop() {}
+void fast_server::TCP::Server::stop() {
+    if (!m_running) return;
+
+    m_running = false;
+
+    if (m_acceptor && m_acceptor->is_open()) {
+        m_acceptor->close();
+    }
+
+    unblock_waiting_acceptor();
+    m_accept_thread.join();
+
+    for (auto& thread : m_peers) {
+        thread.join();
+    }
+
+    m_peers.clear();
+
+    ::fmt::print("Server stopped\n");
+}
+void fast_server::TCP::Server::unblock_waiting_acceptor() const {
+    try {
+        ::boost::asio::io_context io;
+        ::boost::asio::ip::tcp::socket socket(io);
+        ::boost::system::error_code ec;
+        socket.connect(::boost::asio::ip::tcp::endpoint(::boost::asio::ip::make_address(m_ip), m_port), ec);
+
+        if (!ec) {
+            char const* data = "SHUTDOWN";
+            boost::asio::write(socket, boost::asio::buffer(data, std::strlen(data)), ec);
+        }
+    } catch (const std::exception& e) {
+        ::fmt::print(stderr, "Error creating unblock connection: {}\n", e.what());
+    }
+}
+
+fast_server::TCP::Peer::Peer(boost::asio::ip::tcp::socket&& socket, std::atomic<bool>& working_state)
+    : m_socket{std::move(socket)}, m_running{working_state} {}
+
+void fast_server::TCP::Peer::run() {
+    while (m_running) {
+        ::boost::system::error_code ec;
+        m_socket.read_some(::boost::asio::buffer(m_buffer.data(), 1024), ec);
+        if (ec) {
+            ::fmt::print(stderr, "Error reading data: {}\n", ec.message());
+            break;
+        }
+        ::fmt::print("Received: {}\n", m_buffer.data());
+    }
+}
+void fast_server::TCP::Peer::stop() {
+    m_running = false;
+
+    if (m_socket.is_open()) {
+        boost::system::error_code ec;
+        m_socket.close(ec);
+        if (ec) {
+            ::fmt::print(stderr, "Error closing socket: {}\n", ec.message());
+        }
+    }
+}
