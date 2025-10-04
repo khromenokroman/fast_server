@@ -81,11 +81,12 @@ fast_server::TCP::Peer::Peer(boost::asio::ip::tcp::socket&& socket, std::atomic<
 void fast_server::TCP::Peer::run() {
     while (m_running) {
         ::boost::system::error_code ec;
-        m_socket.read_some(::boost::asio::buffer(m_buffer.data(), 1024), ec);
+        auto const read_bytes = m_socket.read_some(::boost::asio::buffer(m_buffer.data(), 1024), ec);
         if (ec) {
             ::fmt::print(stderr, "Error reading data: {}\n", ec.message());
             break;
         }
+        m_buffer[read_bytes] = '\0';
         ::fmt::print(stdout, "Received: {}\n", m_buffer.data());
     }
     ::fmt::print(stdout, "Peer stopped. Remote endpoint: {}\n", m_socket.remote_endpoint().address().to_string());
