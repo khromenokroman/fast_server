@@ -31,3 +31,22 @@ TEST(FastServer, connect2Server) {
     ASSERT_FALSE(ec) << ::fmt::format("Error connecting to server '{}:{}': {}", DEFAULT_IP, DEFAULT_PORT, ec.message());
     ASSERT_NO_THROW(server.stop());
 }
+
+TEST(FastServer, send_one_message) {
+    ::fast_server::TCP::Server server(DEFAULT_IP, DEFAULT_PORT);
+    server.run();
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    ::boost::asio::io_context io;
+    ::boost::asio::ip::tcp::socket socket(io);
+    ::boost::system::error_code ec;
+    socket.connect(::boost::asio::ip::tcp::endpoint(::boost::asio::ip::make_address(DEFAULT_IP), DEFAULT_PORT), ec);
+    ASSERT_FALSE(ec) << ::fmt::format("Error connecting to server '{}:{}': {}", DEFAULT_IP, DEFAULT_PORT, ec.message());
+
+    char const* data = "TEST MESSAGE";
+    auto write_bytes = boost::asio::write(socket, boost::asio::buffer(data, std::strlen(data)), ec);
+    ASSERT_FALSE(ec) << ::fmt::format("Error writing to server '{}:{}': {}", DEFAULT_IP, DEFAULT_PORT, ec.message());
+    ASSERT_EQ(write_bytes, std::strlen(data));
+
+    ASSERT_NO_THROW(server.stop());
+}

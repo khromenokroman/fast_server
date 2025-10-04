@@ -74,7 +74,9 @@ void fast_server::TCP::Server::unblock_waiting_acceptor() const {
 }
 
 fast_server::TCP::Peer::Peer(boost::asio::ip::tcp::socket&& socket, std::atomic<bool>& working_state)
-    : m_socket{std::move(socket)}, m_running{working_state} {}
+    : m_socket{std::move(socket)}, m_running{working_state} {
+    ::fmt::print(stdout, "Peer created. Remote endpoint: {}\n", m_socket.remote_endpoint().address().to_string());
+}
 
 void fast_server::TCP::Peer::run() {
     while (m_running) {
@@ -84,8 +86,9 @@ void fast_server::TCP::Peer::run() {
             ::fmt::print(stderr, "Error reading data: {}\n", ec.message());
             break;
         }
-        ::fmt::print("Received: {}\n", m_buffer.data());
+        ::fmt::print(stdout, "Received: {}\n", m_buffer.data());
     }
+    ::fmt::print(stdout, "Peer stopped. Remote endpoint: {}\n", m_socket.remote_endpoint().address().to_string());
 }
 void fast_server::TCP::Peer::stop() {
     m_running = false;
